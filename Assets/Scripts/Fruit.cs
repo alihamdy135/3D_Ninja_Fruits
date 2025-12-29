@@ -1,126 +1,72 @@
 using UnityEngine;
 
-/// <summary>
-/// Handles fruit physics, launch mechanics, and destruction when sliced.
-/// Uses 3D Rigidbody for gravity and force application.
-/// </summary>
 public class Fruit : MonoBehaviour
 {
-    [Header("Launch Settings")]
-    [Tooltip("Minimum upward force applied when spawned")]
-    public float minLaunchForce = 8f;
-    
-    [Tooltip("Maximum upward force applied when spawned")]
-    public float maxLaunchForce = 12f;
+    public GameObject whole;
+    public GameObject sliced;
 
-    [Header("Rotation Settings")]
-    [Tooltip("Minimum random torque applied to fruit")]
-    public float minTorque = -50f;
-    
-    [Tooltip("Maximum random torque applied to fruit")]
-    public float maxTorque = 50f;
+    private Rigidbody fruitRigidbody;
+    private Collider fruitCollider;
+    private ParticleSystem juiceEffect;
 
-    [Header("Destruction Settings")]
-    [Tooltip("Optional particle effect to spawn when fruit is sliced")]
-    public GameObject sliceEffect;
-    
-    [Tooltip("Y position below which the fruit is automatically destroyed")]
-    public float destroyYPosition = -10f;
+    public int points = 1;
+    private bool isSliced = false; // Flag to track if fruit is sliced
 
-    private Rigidbody rb;
-
-    void Awake()
+    private void Awake()
     {
-        rb = GetComponent<Rigidbody>();
-        
-        if (rb == null)
-        {
-            Debug.LogError($"Rigidbody component missing on {gameObject.name}! Please add a Rigidbody (UseGravity=true)");
-        }
+        fruitRigidbody = GetComponent<Rigidbody>();
+        fruitCollider = GetComponent<Collider>();
+        juiceEffect = GetComponentInChildren<ParticleSystem>();
     }
 
-    void Start()
+    // NEW: Check if fruit falls below the screen
+    private void Update()
     {
-        // Launch the fruit upward when it spawns
-        LaunchFruit();
-    }
-
-    void Update()
-    {
-        // Destroy fruit if it falls too far down (off-screen)
-        if (transform.position.y < destroyYPosition)
+        // If fruit falls below Y = -5 and hasn't been sliced yet
+        if (transform.position.y < -20f)
         {
+            if (!isSliced)
+            {
+                // Deduct a life because player missed the fruit
+                GameManager.Instance.LoseLife();
+            }
+
+            // Destroy the object to clean up memory
             Destroy(gameObject);
         }
     }
 
-    /// <summary>
-    /// Launches the fruit upward with random force and applies random rotation.
-    /// Uses ForceMode.Impulse for instant force application (like throwing).
-    /// </summary>
-    public void LaunchFruit()
+    public void Slice(Vector3 direction, Vector3 position, float force)
     {
-        if (rb == null) return;
+        if (isSliced) return; // Prevent double slicing
 
-        // Apply random upward force (Y-axis)
-        float randomForce = Random.Range(minLaunchForce, maxLaunchForce);
-        Vector3 launchDirection = Vector3.up; // Straight up in 3D
-        
-        rb.AddForce(launchDirection * randomForce, ForceMode.Impulse);
+        isSliced = true;
+        GameManager.Instance.IncreaseScore(points);
 
-        // Apply random torque for rotation on all axes
-        Vector3 randomTorque = new Vector3(
-            Random.Range(minTorque, maxTorque),
-            Random.Range(minTorque, maxTorque),
-            Random.Range(minTorque, maxTorque)
-        );
-        
-        rb.AddTorque(randomTorque);
+        fruitCollider.enabled = false;
+        whole.SetActive(false);
 
-        Debug.Log($"{gameObject.name} launched with force: {randomForce}");
+        sliced.SetActive(true);
+        juiceEffect.Play();
+
+        float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
+        sliced.transform.rotation = Quaternion.Euler(0f, 0f, angle);
+
+        Rigidbody[] slices = sliced.GetComponentsInChildren<Rigidbody>();
+
+        foreach (Rigidbody slice in slices)
+        {
+            slice.velocity = fruitRigidbody.velocity;
+            slice.AddForceAtPosition(direction * force, position, ForceMode.Impulse);
+        }
     }
 
-    /// <summary>
-    /// Called when the blade hits this fruit.
-    /// Spawns particle effects and destroys the fruit.
-    /// </summary>
-    public void Slice()
+    private void OnTriggerEnter(Collider other)
     {
-        // Spawn particle effect at fruit position
-        if (sliceEffect != null)
+        if (other.CompareTag("Player"))
         {
-            Instantiate(sliceEffect, transform.position, Quaternion.identity);
-        }
-
-        // Increase score
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.IncreaseScore(1);
-        }
-
-        // Destroy the fruit
-        Destroy(gameObject);
-    }
-
-    /// <summary>
-    /// Alternative method: Apply force after instantiation (called by spawner).
-    /// Useful if you want the spawner to control the launch force.
-    /// </summary>
-    /// <param name="force">Custom force to apply</param>
-    public void LaunchWithCustomForce(Vector3 force)
-    {
-        if (rb != null)
-        {
-            rb.AddForce(force, ForceMode.Impulse);
-            
-            // Still add random torque
-            Vector3 randomTorque = new Vector3(
-                Random.Range(minTorque, maxTorque),
-                Random.Range(minTorque, maxTorque),
-                Random.Range(minTorque, maxTorque)
-            );
-            
-            rb.AddTorque(randomTorque);
+            Blade blade = other.GetComponent<Blade>();
+            Slice(blade.direction, blade.transform.position, blade.sliceForce);
         }
     }
 }

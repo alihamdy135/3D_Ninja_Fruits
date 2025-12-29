@@ -1,136 +1,187 @@
+﻿using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
-/// <summary>
-/// Manages game state, score tracking, and UI updates.
-/// Implements Singleton pattern for easy access from other scripts.
-/// </summary>
+[DefaultExecutionOrder(-1)]
 public class GameManager : MonoBehaviour
 {
-    // Singleton instance
     public static GameManager Instance { get; private set; }
 
-    [Header("Score Settings")]
-    [Tooltip("Current player score")]
-    public int score = 0;
-    
-    [Tooltip("UI Text component to display the score")]
-    public Text scoreText;
+    [Header("Game References")]
+    [SerializeField] private Blade blade;
+    [SerializeField] private Spawner spawner; // Make sure this is linked in Inspector
+    [SerializeField] private Text scoreText;
+    [SerializeField] private Image fadeImage;
 
-    [Header("Game Settings")]
-    [Tooltip("Whether the game is currently active")]
-    public bool isGameActive = true;
+    [Header("Lives System")]
+    [SerializeField] private Image[] livesImages; // Drag the 3 Heart Images here
+    private int lives;
 
-    void Awake()
+    [Header("Audio Settings")]
+    [SerializeField] private AudioSource musicSource; // For Background Music ONLY
+
+    public int score { get; private set; } = 0;
+
+    private void Awake()
     {
-        // Implement Singleton pattern
-        if (Instance == null)
+        if (Instance != null)
+        {
+            DestroyImmediate(gameObject);
+        }
+        else
         {
             Instance = this;
-            DontDestroyOnLoad(gameObject); // Optional: persist across scenes
         }
-        else
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this)
         {
-            Destroy(gameObject);
-            return;
+            Instance = null;
         }
     }
 
-    void Start()
+    private void Start()
     {
-        // Initialize score display
-        UpdateScoreUI();
+        NewGame();
     }
 
-    /// <summary>
-    /// Increases the player's score by the specified amount.
-    /// </summary>
-    /// <param name="amount">Amount to add to score</param>
-    public void IncreaseScore(int amount)
-    {
-        if (!isGameActive)
-            return;
-
-        score += amount;
-        UpdateScoreUI();
-        
-        Debug.Log($"Score increased by {amount}. Total score: {score}");
-    }
-
-    /// <summary>
-    /// Decreases the player's score (e.g., for hitting bombs or missing fruits).
-    /// </summary>
-    /// <param name="amount">Amount to subtract from score</param>
-    public void DecreaseScore(int amount)
-    {
-        if (!isGameActive)
-            return;
-
-        score = Mathf.Max(0, score - amount); // Don't go below zero
-        UpdateScoreUI();
-        
-        Debug.Log($"Score decreased by {amount}. Total score: {score}");
-    }
-
-    /// <summary>
-    /// Updates the score UI text display.
-    /// </summary>
-    private void UpdateScoreUI()
-    {
-        if (scoreText != null)
-        {
-            scoreText.text = $"Score: {score}";
-        }
-        else
-        {
-            Debug.LogWarning("Score Text UI not assigned in GameManager! Please assign a UI Text component in the Inspector.");
-        }
-    }
-
-    /// <summary>
-    /// Resets the score to zero.
-    /// </summary>
-    public void ResetScore()
-    {
-        score = 0;
-        UpdateScoreUI();
-        Debug.Log("Score reset to 0");
-    }
-
-    /// <summary>
-    /// Starts the game.
-    /// </summary>
-    public void StartGame()
-    {
-        isGameActive = true;
-        ResetScore();
-        Debug.Log("Game Started!");
-    }
-
-    /// <summary>
-    /// Ends the game.
-    /// </summary>
-    public void EndGame()
-    {
-        isGameActive = false;
-        Debug.Log($"Game Over! Final Score: {score}");
-    }
-
-    /// <summary>
-    /// Pauses the game.
-    /// </summary>
-    public void PauseGame()
-    {
-        Time.timeScale = 0f;
-        Debug.Log("Game Paused");
-    }
-
-    /// <summary>
-    /// Resumes the game.
-    /// </summary>
-    public void ResumeGame()
+    private void NewGame()
     {
         Time.timeScale = 1f;
-        Debug.Log("Game Resumed");
+
+        // Reset Lives
+        lives = 3;
+        UpdateLivesUI();
+
+        // Start Music
+        if (musicSource != null)
+        {
+            musicSource.Play();
+        }
+
+        ClearScene();
+
+        blade.enabled = true;
+        spawner.enabled = true;
+
+        score = 0;
+        scoreText.text = score.ToString();
+    }
+
+    private void ClearScene()
+    {
+        Fruit[] fruits = FindObjectsOfType<Fruit>();
+        foreach (Fruit fruit in fruits) Destroy(fruit.gameObject);
+
+        Bomb[] bombs = FindObjectsOfType<Bomb>();
+        foreach (Bomb bomb in bombs) Destroy(bomb.gameObject);
+    }
+
+    public void IncreaseScore(int points)
+    {
+        score += points;
+        scoreText.text = score.ToString();
+
+        // 📈 DIFFICULTY RAMP: Every 10 points
+        if (score % 10 == 0)
+        {
+            // Tell Spawner to make it harder
+            if (spawner != null)
+            {
+                spawner.IncreaseDifficulty();
+            }
+        }
+
+        // Save Highscore
+        float hiscore = PlayerPrefs.GetFloat("hiscore", 0);
+        if (score > hiscore)
+        {
+            hiscore = score;
+            PlayerPrefs.SetFloat("hiscore", hiscore);
+        }
+    }
+
+    public void LoseLife()
+    {
+        lives--;
+        UpdateLivesUI();
+
+        // Game Over if lives run out
+        if (lives <= 0)
+        {
+            Explode();
+        }
+    }
+
+    private void UpdateLivesUI()
+    {
+        for (int i = 0; i < livesImages.Length; i++)
+        {
+            // Show or hide hearts based on current lives
+            livesImages[i].enabled = (i < lives);
+        }
+    }
+
+    // Called by Blade when hitting a bomb
+    public void OnBombHit()
+    {
+        // Stop Music immediately
+        if (musicSource != null)
+        {
+            musicSource.Stop();
+        }
+
+        Explode();
+    }
+
+    public void Explode()
+    {
+        blade.enabled = false;
+        spawner.enabled = false;
+
+        // Ensure music is stopped
+        if (musicSource != null)
+        {
+            musicSource.Stop();
+        }
+
+        StartCoroutine(ExplodeSequence());
+    }
+
+    private IEnumerator ExplodeSequence()
+    {
+        float elapsed = 0f;
+        float duration = 0.5f;
+
+        // Fade out
+        while (elapsed < duration)
+        {
+            float t = Mathf.Clamp01(elapsed / duration);
+            fadeImage.color = Color.Lerp(Color.clear, Color.white, t);
+
+            Time.timeScale = 1f - t;
+            elapsed += Time.unscaledDeltaTime;
+
+            yield return null;
+        }
+
+        yield return new WaitForSecondsRealtime(1f);
+
+        NewGame();
+
+        elapsed = 0f;
+
+        // Fade in
+        while (elapsed < duration)
+        {
+            float t = Mathf.Clamp01(elapsed / duration);
+            fadeImage.color = Color.Lerp(Color.white, Color.clear, t);
+
+            elapsed += Time.unscaledDeltaTime;
+
+            yield return null;
+        }
     }
 }

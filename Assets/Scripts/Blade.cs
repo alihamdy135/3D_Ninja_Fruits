@@ -1,84 +1,123 @@
 using UnityEngine;
 
-/// <summary>
-/// Controls the blade movement based on mouse position in 3D space.
-/// Converts 2D screen position to 3D world position with fixed Z-distance from camera.
-/// </summary>
 public class Blade : MonoBehaviour
 {
     [Header("Blade Settings")]
-    [Tooltip("Distance from camera where the blade will be positioned (Z-axis)")]
-    public float bladeDistanceFromCamera = 10f;
-    
-    [Tooltip("Speed at which the blade follows the mouse")]
-    public float followSpeed = 20f;
+    public float sliceForce = 5f;
+    public float minSliceVelocity = 0.01f;
 
+    [Header("Audio Settings")]
+    public AudioClip sliceSound; // The 'Swoosh' sound clip
+    private AudioSource audioSource;
+
+    [Header("References")]
     private Camera mainCamera;
-    private Rigidbody rb;
+    private Collider sliceCollider;
+    private TrailRenderer sliceTrail;
 
-    void Start()
+    // Public properties to access state
+    public Vector3 direction { get; private set; }
+    public bool slicing { get; private set; }
+
+    private void Awake()
     {
-        // Get references
         mainCamera = Camera.main;
-        rb = GetComponent<Rigidbody>();
+        sliceCollider = GetComponent<Collider>();
+        sliceTrail = GetComponentInChildren<TrailRenderer>();
+        audioSource = GetComponent<AudioSource>(); // Get the AudioSource component
+    }
 
-        // Validate components
-        if (mainCamera == null)
+    private void OnEnable()
+    {
+        StopSlice();
+    }
+
+    private void OnDisable()
+    {
+        StopSlice();
+    }
+
+    private void Update()
+    {
+        // Handle Mouse Input
+        if (Input.GetMouseButtonDown(0))
         {
-            Debug.LogError("Main Camera not found! Make sure your camera is tagged as 'MainCamera'");
+            StartSlice();
         }
-
-        if (rb == null)
+        else if (Input.GetMouseButtonUp(0))
         {
-            Debug.LogError("Rigidbody component missing on Blade! Please add a Rigidbody (IsKinematic=true, UseGravity=false)");
+            StopSlice();
+        }
+        else if (slicing)
+        {
+            ContinueSlice();
         }
     }
 
-    void Update()
+    private void StartSlice()
     {
-        // Convert mouse position from screen space to world space
-        Vector3 mousePosition = ConvertMouseToWorldPosition();
+        Vector3 position = mainCamera.ScreenToWorldPoint(Input.mousePosition);
+        position.z = 0f;
+        transform.position = position;
 
-        // Smoothly move blade to mouse position
-        transform.position = Vector3.Lerp(transform.position, mousePosition, followSpeed * Time.deltaTime);
+        slicing = true;
+        sliceCollider.enabled = true;
+        sliceTrail.enabled = true;
+        sliceTrail.Clear();
+
+        // Play the Swoosh sound when slicing starts
+        PlaySwipeSound();
     }
 
-    /// <summary>
-    /// Converts the 2D mouse position from screen space to 3D world space.
-    /// CRUCIAL: We set a fixed Z-distance so the blade exists in 3D space and can intersect with fruits.
-    /// </summary>
-    /// <returns>World position of the mouse in 3D space</returns>
-    private Vector3 ConvertMouseToWorldPosition()
+    private void StopSlice()
     {
-        // Get mouse position in screen coordinates (2D)
-        Vector3 mouseScreenPosition = Input.mousePosition;
-
-        // IMPORTANT: Set the Z-distance from the camera
-        // This is the key difference from 2D - we need to specify depth!
-        mouseScreenPosition.z = bladeDistanceFromCamera;
-
-        // Convert to world position using the camera
-        Vector3 worldPosition = mainCamera.ScreenToWorldPoint(mouseScreenPosition);
-
-        return worldPosition;
+        slicing = false;
+        sliceCollider.enabled = false;
+        sliceTrail.enabled = false;
     }
 
-    /// <summary>
-    /// Detects collision with fruits using 3D trigger collision.
-    /// This uses OnTriggerEnter (3D) instead of OnTriggerEnter2D.
-    /// </summary>
-    /// <param name="other">The collider that entered the trigger</param>
-    void OnTriggerEnter(Collider other)
+    private void ContinueSlice()
     {
-        // Check if the object we hit is a fruit
+        Vector3 newPosition = mainCamera.ScreenToWorldPoint(Input.mousePosition);
+        newPosition.z = 0f;
+
+        direction = newPosition - transform.position;
+
+        float velocity = direction.magnitude / Time.deltaTime;
+
+        // Only enable collider if moving fast enough
+        sliceCollider.enabled = velocity > minSliceVelocity;
+
+        transform.position = newPosition;
+    }
+
+    // Handles collisions with Fruits and Bombs
+    private void OnTriggerEnter(Collider other)
+    {
+        // 1. Check for Fruit
         Fruit fruit = other.GetComponent<Fruit>();
-        
         if (fruit != null)
         {
-            // Tell the fruit it has been sliced
-            fruit.Slice();
-            
-            Debug.Log($"Sliced: {other.gameObject.name}");
+            // Send slice data to the fruit (Direction, Position, Force)
+            fruit.Slice(direction, transform.position, sliceForce);
+        }
+
+        // 2. Check for Bomb
+        if (other.CompareTag("Bomb"))
+        {
+            // Trigger Game Over logic in GameManager
+            FindObjectOfType<GameManager>().OnBombHit();
+        }
+    }
+
+    private void PlaySwipeSound()
+    {
+        // Check if sound clip and source are assigned
+        if (audioSource != null && sliceSound != null)
+        {
+            // Randomize pitch slightly for variety
+            audioSource.pitch = Random.Range(0.8f, 1.2f);
+            audioSource.PlayOneShot(sliceSound);
         }
     }
 }
