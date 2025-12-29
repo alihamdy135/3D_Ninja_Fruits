@@ -38,12 +38,6 @@
     * 💣 Do not slice Bombs (Instant Game Over).
 5.  **Restart:** The game automatically offers a restart option upon Game Over.
 
-## 📸 Screenshots
-*(Please upload your screenshots to a folder named 'Screenshots' in your repo and link them here)*
-
-| Gameplay Action | Game Over Screen |
-|:---:|:---:|
-| ![Gameplay](Screenshots/gameplay.png) | ![GameOver](Screenshots/gameover.png) |
 
 ## 📂 Project Structure
 ```text
